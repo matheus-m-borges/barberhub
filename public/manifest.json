@@ -1,0 +1,63 @@
+{
+  "name": "BarberHub Pro — Gestão de Barbearias",
+  "short_name": "BarberHub",
+  "description": "Sistema completo e independente de gestão para barbearias: agenda, PDV, clientes, estoque e financeiro.",
+  "start_url": "/",
+  "id": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0c0c0e",
+  "theme_color": "#121214",
+  "lang": "pt-BR",
+  "categories": ["business", "finance", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nova Venda / PDV",
+      "short_name": "PDV",
+      "description": "Abrir Frente de Caixa para registro de venda",
+      "url": "/pdv",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Agenda do Dia",
+      "short_name": "Agenda",
+      "description": "Visualizar agendamentos e horários de hoje",
+      "url": "/agenda",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Agendamento Online",
+      "short_name": "Agendar",
+      "description": "Fluxo público de agendamento para clientes",
+      "url": "/agendar",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "prefer_related_applications": false
+}

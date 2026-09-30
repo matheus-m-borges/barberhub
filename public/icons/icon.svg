@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+      <stop offset="0%" stop-color="#222226"/>
+      <stop offset="100%" stop-color="#0c0c0e"/>
+    </radialGradient>
+    <linearGradient id="brass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffd580"/>
+      <stop offset="50%" stop-color="#d49b38"/>
+      <stop offset="100%" stop-color="#996a18"/>
+    </linearGradient>
+  </defs>
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="none" stroke="url(#brass)" stroke-width="4" stroke-opacity="0.3"/>
+  
+  <!-- Barber Pole & Scissors Monogram -->
+  <g transform="translate(136, 120)">
+    <!-- Razor / Scissor blades -->
+    <path d="M 60,30 L 180,210 C 190,225 180,245 160,245 C 140,245 130,230 120,215 L 30,80 Z" fill="url(#brass)"/>
+    <path d="M 180,30 L 60,210 C 50,225 60,245 80,245 C 100,245 110,230 120,215 L 210,80 Z" fill="url(#brass)" fill-opacity="0.85"/>
+    <circle cx="120" cy="140" r="14" fill="#0c0c0e" stroke="url(#brass)" stroke-width="6"/>
+    
+    <!-- Barber Pole Center Accent -->
+    <line x1="120" y1="20" x2="120" y2="260" stroke="url(#brass)" stroke-width="4" stroke-dasharray="8 8"/>
+  </g>
+  
+  <!-- Brand text below -->
+  <text x="256" y="440" font-family="'Space Grotesk', system-ui, sans-serif" font-size="44" font-weight="700" letter-spacing="4" fill="url(#brass)" text-anchor="middle">BARBERHUB</text>
+</svg>
