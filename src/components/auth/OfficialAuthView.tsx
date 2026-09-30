@@ -252,12 +252,22 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
       <div className="relative z-10 w-full max-w-[460px] flex flex-col items-center">
         {/* Logo & Emblema Oficial NAVOR BarberHub */}
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="h-14 w-14 rounded-2xl bg-zinc-950 border border-zinc-800 shadow-xl flex items-center justify-center mb-3">
-            <Scissors className="h-7 w-7 text-primary" />
+          <div className="flex items-center gap-2.5 mb-3">
+            <img
+              src="/icons/navor-icon.png"
+              alt="NAVOR Logo"
+              className="h-10 w-10 object-contain drop-shadow-[0_2px_10px_rgba(0,136,204,0.35)]"
+            />
+            <div className="h-6 w-px bg-zinc-700/60 mx-0.5" />
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-zinc-900 to-zinc-950 border border-amber-500/30 shadow-lg shadow-amber-500/10 flex items-center justify-center">
+              <Scissors className="h-5 w-5 text-amber-500" />
+            </div>
           </div>
 
-          <span className="text-[11px] font-bold tracking-widest text-[#0088cc] uppercase">
-            PORTAL NAVOR BARBERHUB
+          <span className="text-[11px] font-bold tracking-widest text-[#0088cc] uppercase flex items-center gap-1.5">
+            <span>NAVOR</span>
+            <span className="text-zinc-600">•</span>
+            <span>PORTAL BARBERHUB</span>
           </span>
 
           <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl font-display">
