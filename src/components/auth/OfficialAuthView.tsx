@@ -17,6 +17,19 @@ interface OfficialAuthViewProps {
 
 type AuthMode = "LOGIN" | "FORGOT_PASSWORD" | "FIRST_ACCESS";
 
+/**
+ * A retaguarda registra cada produto em uma identidade de autenticação própria.
+ * O endereço técnico nunca é exibido ao cliente: ele continua informando seu
+ * e-mail normal, mas a senha fica isolada do acesso aos demais produtos NAVOR.
+ */
+async function barberHubAuthEmail(email: string) {
+  const normalized = email.trim().toLowerCase();
+  const bytes = new TextEncoder().encode(`barberhub:${normalized}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `barberhub.${hash.slice(0, 40)}@login.navor.internal`;
+}
+
 export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: OfficialAuthViewProps) {
   const [mode, setMode] = useState<AuthMode>("LOGIN");
 
@@ -71,10 +84,21 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
 
     try {
       // 1. Tenta autenticação oficial via Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
+      const productAuthEmail = await barberHubAuthEmail(cleanEmail);
+      let { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: productAuthEmail,
         password,
       });
+
+      // Mantém o acesso de contas criadas antes da identidade isolada.
+      if (authError) {
+        const legacySignIn = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
+        authData = legacySignIn.data;
+        authError = legacySignIn.error;
+      }
 
       if (!authError && authData.user) {
         const tenantId = (authData.user.app_metadata?.tenant_id as string) || (authData.user.user_metadata?.tenant_id as string) || "tenant-matriz";
