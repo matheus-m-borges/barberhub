@@ -46,7 +46,7 @@ export function PublicSiteView({
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Fonte Única de Verdade de Canais (Cofre Seguro por Tenant)
-  const tenantId = "tenant-matriz";
+  const tenantId = "tenant-default";
   const [channelSettings, setChannelSettings] = useState(() => whatsAppVault.getChannelSettings(tenantId));
 
   // Assinatura reativa: reflete alterações no cofre instantaneamente sem reload ou Shift+F5

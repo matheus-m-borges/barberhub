@@ -5,7 +5,8 @@ export type RoleSlug =
   | "RECEPCIONISTA"
   | "BARBEIRO"
   | "CAIXA"
-  | "ESTOQUISTA";
+  | "ESTOQUISTA"
+  | "CLIENTE";
 
 export interface AuthenticatedUser {
   id: string;
@@ -13,5 +14,7 @@ export interface AuthenticatedUser {
   role: RoleSlug;
   email: string;
   tenantId: string;
+  companyName?: string;
   unitId?: string | null;
+  mustChangePassword?: boolean;
 }

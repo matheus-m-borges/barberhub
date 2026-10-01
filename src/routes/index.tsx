@@ -12,6 +12,7 @@ import {
   Smartphone,
   Check,
   Percent,
+  LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -86,6 +87,7 @@ import {
 } from "@/lib/loyalty/loyalty.service";
 import { OfficialAuthView, type AuthenticatedUser } from "@/components/auth/OfficialAuthView";
 import { UserProfileModal } from "@/components/auth/UserProfileModal";
+import { ChangePasswordModal } from "@/components/auth/ChangePasswordModal";
 import { NavorEnvironmentSelectorModal } from "@/components/auth/NavorEnvironmentSelectorModal";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -201,6 +203,7 @@ export function BarberHubErpApp() {
   });
 
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
   const [isNavorSelectorOpen, setIsNavorSelectorOpen] = useState(false);
 
   // Notificação Toast
@@ -229,7 +232,7 @@ export function BarberHubErpApp() {
   // DADOS DE CONFIGURAÇÕES DA EMPRESA
   // =========================================================================
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>({
-    name: "BarberHub Studio",
+    name: "Minha Barbearia",
     cnpj: "",
     phone: "",
     address: "",
@@ -607,7 +610,7 @@ export function BarberHubErpApp() {
           : null;
 
       const context: BotEngineContext = {
-        tenantId: "tenant-matriz",
+        tenantId: currentUser.tenantId || "tenant-default",
         businessSettings,
         services,
         employees,
@@ -697,7 +700,7 @@ export function BarberHubErpApp() {
 
     // Se a conversa for do canal WhatsApp Oficial, despacha via Meta Graph API
     if (isWhatsApp && targetConv) {
-      const tenantId = targetConv.tenantId || "tenant-matriz";
+      const tenantId = targetConv.tenantId || currentUser.tenantId || "tenant-default";
       const config = whatsAppVault.getConfig(tenantId, tenantId);
       if (config && whatsAppVault.isWhatsAppOperational(tenantId)) {
         const outbound = buildAttendantWhatsAppOutbound({
@@ -729,28 +732,11 @@ export function BarberHubErpApp() {
   // =========================================================================
   // CAIXA DIÁRIO & MOVIMENTAÇÕES
   // =========================================================================
-  const [cashStatus, setCashStatus] = useState<"OPEN" | "CLOSED">("OPEN");
-  const [cashBalance, setCashBalance] = useState<number>(150.0);
+  const [cashStatus, setCashStatus] = useState<"OPEN" | "CLOSED">("CLOSED");
+  const [cashBalance, setCashBalance] = useState<number>(0.0);
   const [salesHistoryTotal, setSalesHistoryTotal] = useState<number>(0);
   const [commissionsTotal, setCommissionsTotal] = useState<number>(0);
-  const [cashMovements, setCashMovements] = useState<CashMovement[]>([
-    {
-      id: "mov-1",
-      type: "OPENING",
-      amount: 150.0,
-      reason: "Abertura de caixa com fundo de troco inicial",
-      operator: "Matheus (PROPRIETARIO)",
-      time: "Hoje às 08:00",
-    },
-    {
-      id: "mov-2",
-      type: "SALE",
-      amount: 45.0,
-      reason: "Venda #BH-94812 em Dinheiro (Matthew Wilson)",
-      operator: "Matheus (PROPRIETARIO)",
-      time: "Hoje às 09:42",
-    },
-  ]);
+  const [cashMovements, setCashMovements] = useState<CashMovement[]>([]);
 
   const handleOpenCash = (initialAmount: number) => {
     setCashStatus("OPEN");
@@ -1259,8 +1245,50 @@ export function BarberHubErpApp() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Se o usuário não estiver autenticado, exibe a tela de login oficial NAVOR
-  if (!currentUser) {
+  // Carrega e sincroniza o nome e dados reais da empresa contratante via Supabase
+  useEffect(() => {
+    if (!currentUser?.tenantId) return;
+
+    let isMounted = true;
+    const fetchTenantData = async () => {
+      try {
+        const { data: tenantData } = await supabase
+          .from("tenants")
+          .select("id, name, trade_name, document, phone, email")
+          .eq("id", currentUser.tenantId)
+          .maybeSingle();
+
+        if (tenantData && isMounted) {
+          const officialName = tenantData.trade_name || tenantData.name || "Minha Barbearia";
+          setBusinessSettings((prev) => ({
+            ...prev,
+            name: officialName,
+            cnpj: tenantData.document || prev.cnpj,
+            phone: tenantData.phone || prev.phone,
+          }));
+
+          if (currentUser.companyName !== officialName) {
+            const updatedUser = {
+              ...currentUser,
+              companyName: officialName,
+            };
+            setCurrentUser(updatedUser);
+            localStorage.setItem("barberhub_session_user", JSON.stringify(updatedUser));
+          }
+        }
+      } catch (err) {
+        console.warn("[Tenant] Erro ao carregar dados do tenant:", err);
+      }
+    };
+
+    fetchTenantData();
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser?.tenantId]);
+
+  // Se o usuário não estiver autenticado ou possuir troca obrigatória de senha pendente, impede totalmente o acesso ao ERP
+  if (!currentUser || currentUser.mustChangePassword) {
     return (
       <>
         <OfficialAuthView
@@ -1275,6 +1303,87 @@ export function BarberHubErpApp() {
           onClose={() => setIsNavorSelectorOpen(false)}
         />
       </>
+    );
+  }
+
+  // ISOLAMENTO RESTRITO: Se o usuário for CLIENTE final, exibe estritamente o Portal do Cliente
+  if (currentUser.role === "CLIENTE") {
+    const activeCustomer = customers.find(c => c.id === currentUser.id || c.email === currentUser.email) || {
+      id: currentUser.id,
+      name: currentUser.name,
+      phone: "",
+      cpf: "",
+      email: currentUser.email,
+      visits: 0,
+      spent: 0,
+      avg: 0,
+      tag: "Cliente",
+      crmSegment: "NOVO" as const,
+      loyaltyPoints: 0,
+      lifetimePoints: 0,
+      loyaltyTier: "BRONZE" as const,
+      notes: "",
+    };
+
+    return (
+      <div className="min-h-screen bg-background text-foreground flex flex-col">
+        {/* Topbar exclusiva e protegida do cliente */}
+        <header className="flex h-16 w-full items-center justify-between border-b border-border bg-card/85 px-4 sm:px-6 backdrop-blur-md">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
+              <Scissors className="h-4 w-4" />
+            </div>
+            <div>
+              <span className="font-bold text-sm text-foreground">
+                Barber<span className="text-primary">Hub</span>
+              </span>
+              <span className="text-[10px] text-muted-foreground block">
+                {currentUser.companyName || "Portal do Cliente"}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-medium text-foreground hidden sm:inline">
+              Olá, {currentUser.name}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                localStorage.removeItem("barberhub_session_user");
+                supabase.auth.signOut();
+                setCurrentUser(null);
+                showToast("Sessão do cliente encerrada.");
+              }}
+              className="h-8 text-xs font-bold border-hairline cursor-pointer"
+            >
+              <LogOut className="h-3.5 w-3.5 mr-1" />
+              Sair
+            </Button>
+          </div>
+        </header>
+
+        {/* Conteúdo do Portal do Cliente */}
+        <main className="flex-1 max-w-5xl mx-auto w-full p-4 sm:p-6">
+          <CustomerPortalView
+            customer={activeCustomer}
+            onOpenBookingModal={(options) => handleOpenPublicBooking(options)}
+            onCancelAppointment={(code) => {
+              setAttendances(prev => prev.map(a => a.code === code ? { ...a, status: "CANCELADO" } : a));
+              showToast(`Agendamento ${code} cancelado.`);
+            }}
+            onBackToErp={() => {
+              // Sem acesso ao ERP
+            }}
+            loyaltySettings={loyaltySettings}
+            loyaltyTiers={loyaltyTiers}
+            loyaltyRewards={loyaltyRewards}
+            loyaltyLedger={loyaltyLedger}
+            loyaltyRedemptions={loyaltyRedemptions}
+            onRedeemReward={handleRedeemReward}
+          />
+        </main>
+      </div>
     );
   }
 
@@ -1316,14 +1425,14 @@ export function BarberHubErpApp() {
 
       {/* Container Principal */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Topbar Limpa */}
+        {/* Topbar Limpa com Nome Real da Empresa e Estado Real de Caixa */}
         <AppTopbar
           onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
           onOpenQuickAttendanceModal={() => setIsQuickAttendanceModalOpen(true)}
           onOpenLoginModal={() => setIsProfileModalOpen(true)}
-          onSimulateMobileBooking={() => setActiveTab("booking_mobile")}
           currentUser={currentUser}
-          currentUnitName="Matriz — Centro (São Paulo)"
+          currentUnitName={currentUser.companyName || businessSettings.name || "Minha Barbearia"}
+          isCashOpen={cashStatus === "OPEN"}
           cashBalance={cashBalance}
         />
 
@@ -1340,13 +1449,19 @@ export function BarberHubErpApp() {
                 }}
                 onNavigateToEmployees={() => setActiveTab("employees")}
                 onQuickCheckIn={handleQuickCheckIn}
-                unitName="Matriz — Centro"
+                unitName={currentUser.companyName || businessSettings.name || "Minha Barbearia"}
                 onNavigateToCustomers={(filter) => {
                   setActiveTab("customers");
                 }}
                 onNavigateToLoyalty={(subtab) => {
                   setActiveTab("loyalty");
                 }}
+                attendances={attendances}
+                employees={employees}
+                customers={customers}
+                services={services}
+                salesTotal={salesHistoryTotal}
+                commissionsTotal={commissionsTotal}
                 loyaltySummary={{
                   birthdaysWeek: customers.filter((c) => {
                     if (!c.birthDate) return false;
@@ -1622,7 +1737,14 @@ export function BarberHubErpApp() {
             {activeTab === "reviews" && <ReviewsView />}
 
             {/* 10. ANÁLISES & RELATÓRIOS */}
-            {activeTab === "reports" && <ReportsView />}
+            {activeTab === "reports" && (
+              <ReportsView
+                salesTotal={salesHistoryTotal}
+                commissionsTotal={commissionsTotal}
+                attendancesCount={attendances.length}
+                onShowToast={showToast}
+              />
+            )}
 
             {/* 11. CONFIGURAÇÕES */}
             {(activeTab === "settings" || activeTab.startsWith("settings_")) && (
@@ -2135,7 +2257,7 @@ export function BarberHubErpApp() {
         </div>
       )}
 
-      {/* Modal de Perfil e Logout do Usuário */}
+      {/* Modal de Perfil e Menu da Empresa */}
       {currentUser && (
         <UserProfileModal
           isOpen={isProfileModalOpen}
@@ -2148,13 +2270,32 @@ export function BarberHubErpApp() {
             setIsProfileModalOpen(false);
             showToast("Sessão encerrada com sucesso.");
           }}
-          onOpenEnvironmentSelector={() => {
-            setIsProfileModalOpen(false);
-            setIsNavorSelectorOpen(true);
-          }}
           onOpenSettings={() => {
             setActiveTab("settings");
             setIsProfileModalOpen(false);
+          }}
+          onOpenChangePassword={() => {
+            setIsProfileModalOpen(false);
+            setIsChangePasswordModalOpen(true);
+          }}
+        />
+      )}
+
+      {/* Modal de Alteração de Senha */}
+      {currentUser && (
+        <ChangePasswordModal
+          isOpen={isChangePasswordModalOpen}
+          onClose={() => setIsChangePasswordModalOpen(false)}
+          isMandatory={Boolean(currentUser.mustChangePassword)}
+          userEmail={currentUser.email}
+          userId={currentUser.id}
+          onSuccess={() => {
+            if (currentUser.mustChangePassword) {
+              const updated = { ...currentUser, mustChangePassword: false };
+              setCurrentUser(updated);
+              localStorage.setItem("barberhub_session_user", JSON.stringify(updated));
+            }
+            showToast("Senha atualizada com sucesso!");
           }}
         />
       )}

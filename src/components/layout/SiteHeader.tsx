@@ -38,7 +38,7 @@ export function SiteHeader() {
         <div className="flex items-center gap-3">
           <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground border border-hairline bg-muted/40 px-3 py-1.5 rounded-md">
             <Building2 className="h-3.5 w-3.5 text-primary" />
-            <span>Matriz — Centro</span>
+            <span>Barbearia Oficial</span>
           </div>
 
           {/* Botão de Alternância de Tema: Claro / Escuro */}

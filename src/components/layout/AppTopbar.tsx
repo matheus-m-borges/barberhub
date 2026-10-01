@@ -6,11 +6,9 @@ import {
   Sun,
   Moon,
   Plus,
-  UserCheck,
   ChevronDown,
-  Sparkles,
-  Smartphone,
   Scissors,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,13 +20,15 @@ interface AppTopbarProps {
   onOpenNewAppointmentModal?: () => void;
   onOpenQuickAttendanceModal?: () => void;
   onOpenLoginModal: () => void;
-  onSimulateMobileBooking: () => void;
+  onSimulateMobileBooking?: () => void;
   currentUser: {
     name: string;
     role: string;
     email: string;
+    companyName?: string;
   };
-  currentUnitName: string;
+  currentUnitName?: string;
+  isCashOpen?: boolean;
   cashBalance?: number;
 }
 
@@ -36,13 +36,13 @@ export function AppTopbar({
   onToggleMobileSidebar,
   onOpenQuickAttendanceModal,
   onOpenLoginModal,
-  onSimulateMobileBooking,
   currentUser,
   currentUnitName,
-  cashBalance = 150.0,
+  isCashOpen = false,
+  cashBalance = 0.0,
 }: AppTopbarProps) {
   const [theme, setTheme] = useState<ThemeMode>("dark");
-  const [hasNotifications, setHasNotifications] = useState(true);
+  const [hasNotifications, setHasNotifications] = useState(false);
 
   useEffect(() => {
     const initial = getInitialTheme();
@@ -56,9 +56,11 @@ export function AppTopbar({
     applyTheme(next);
   };
 
+  const displayCompanyName = currentUser.companyName || currentUnitName || "Minha Barbearia";
+
   return (
     <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-border bg-card/85 px-4 sm:px-6 backdrop-blur-md transition-colors">
-      {/* Lado Esquerdo: Botão Mobile + Seletor de Unidade */}
+      {/* Lado Esquerdo: Botão Mobile + Identificação da Empresa */}
       <div className="flex items-center gap-3">
         {/* Toggle Mobile Drawer */}
         <button
@@ -79,24 +81,33 @@ export function AppTopbar({
           </span>
         </div>
 
-        {/* Seletor de Unidade Ativa */}
-        <div className="hidden sm:flex items-center gap-2 rounded-lg border border-hairline bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/60 transition-colors cursor-pointer">
+        {/* Identificação Oficial do Estabelecimento */}
+        <div className="hidden sm:flex items-center gap-2 rounded-lg border border-hairline bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground transition-colors">
           <Building2 className="h-3.5 w-3.5 text-primary" />
-          <span className="font-medium text-foreground">{currentUnitName}</span>
-          <ChevronDown className="h-3 w-3 text-muted-foreground ml-1" />
+          <span className="font-semibold text-foreground max-w-[200px] truncate">{displayCompanyName}</span>
         </div>
 
-        {/* Indicador de Caixa Aberto */}
-        <Badge
-          variant="outline"
-          className="hidden md:inline-flex items-center gap-1.5 border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-[11px] font-mono py-1 px-2.5"
-        >
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          Caixa Aberto: R$ {cashBalance.toFixed(2)}
-        </Badge>
+        {/* Indicador Real de Caixa (Aberto vs Fechado) */}
+        {isCashOpen ? (
+          <Badge
+            variant="outline"
+            className="hidden md:inline-flex items-center gap-1.5 border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-[11px] font-mono py-1 px-2.5"
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Caixa Aberto: R$ {cashBalance.toFixed(2)}
+          </Badge>
+        ) : (
+          <Badge
+            variant="outline"
+            className="hidden md:inline-flex items-center gap-1.5 border-hairline bg-muted/40 text-muted-foreground text-[11px] font-mono py-1 px-2.5"
+          >
+            <Lock className="h-3 w-3 text-muted-foreground/60" />
+            Caixa Fechado
+          </Badge>
+        )}
       </div>
 
-      {/* Lado Direito: Ações Rápidas, Notificações, Tema e Perfil */}
+      {/* Lado Direito: Ações Rápidas, Notificações, Tema e Menu da Empresa */}
       <div className="flex items-center gap-2.5 sm:gap-3">
         {/* Botão de Atalho + NOVO ATENDIMENTO (F2) */}
         <Button
@@ -110,18 +121,6 @@ export function AppTopbar({
           <kbd className="hidden md:inline-block ml-1 rounded bg-black/20 px-1.5 py-0.2 text-[9px] font-mono text-primary-foreground/90">
             F2
           </kbd>
-        </Button>
-
-        {/* Simular Agendamento Online Cliente */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onSimulateMobileBooking}
-          className="hidden xl:flex h-8.5 gap-1.5 border-hairline text-xs font-medium cursor-pointer"
-          title="Ver página de agendamento que o cliente acessa pelo celular"
-        >
-          <Smartphone className="h-3.5 w-3.5 text-primary" />
-          <span>Agendamento Online</span>
         </Button>
 
         {/* Notificações Operacionais */}
@@ -142,7 +141,7 @@ export function AppTopbar({
         <button
           onClick={toggleTheme}
           className="flex h-8.5 w-8.5 items-center justify-center rounded-lg border border-hairline bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
-          title={theme === "dark" ? "Alternar para Modo Claro" : "Alternar para Modo Escuro (Azul Marinho Navor)"}
+          title={theme === "dark" ? "Alternar para Modo Claro" : "Alternar para Modo Escuro"}
         >
           {theme === "dark" ? (
             <Sun className="h-4 w-4 text-amber-400" />
@@ -151,18 +150,18 @@ export function AppTopbar({
           )}
         </button>
 
-        {/* Perfil & Troca de Usuário (RBAC) */}
+        {/* Menu da Empresa Contratante & Sessão */}
         <button
           onClick={onOpenLoginModal}
           className="flex items-center gap-2 rounded-lg border border-hairline bg-muted/40 hover:bg-muted/80 px-2.5 py-1 text-xs text-foreground cursor-pointer transition-colors"
-          title="Clique para alternar operador ou perfil"
+          title="Menu da Empresa / Minha Conta"
         >
-          <div className="flex h-6.5 w-6.5 items-center justify-center rounded-full bg-primary/20 text-primary border border-primary/30 font-bold text-[11px]">
-            {currentUser.name.charAt(0)}
+          <div className="flex h-6.5 w-6.5 items-center justify-center rounded-lg bg-primary/20 text-primary border border-primary/30 font-bold text-[11px]">
+            {displayCompanyName.charAt(0)}
           </div>
           <div className="hidden sm:flex flex-col text-left">
-            <span className="font-semibold text-xs leading-tight truncate max-w-[110px]">
-              {currentUser.name}
+            <span className="font-semibold text-xs leading-tight truncate max-w-[130px]">
+              {displayCompanyName}
             </span>
             <span className="text-[9px] text-muted-foreground font-mono leading-tight">
               {currentUser.role}

@@ -272,17 +272,6 @@ export const DEFINITIVE_NAV_SECTIONS: NavSection[] = [
       { id: "settings", label: "Configurações", icon: Settings },
     ],
   },
-
-  // EXPERIÊNCIAS EXTERNAS (Público & Cliente)
-  {
-    id: "canal_externo",
-    title: "CANAL EXTERNO",
-    allowedRoles: ["PROPRIETARIO", "ADMINISTRADOR", "GERENTE", "RECEPCIONISTA", "BARBEIRO", "CAIXA", "ESTOQUISTA"],
-    items: [
-      { id: "public_site", label: "Site Público & Bot", icon: Globe },
-      { id: "customer_portal", label: "Portal do Cliente", icon: Smartphone },
-    ],
-  },
 ];
 
 // Persistência local da ordem dos blocos por Perfil de Usuário
@@ -322,6 +311,7 @@ interface AppSidebarProps {
     name: string;
     role: RoleSlug | string;
     email: string;
+    companyName?: string;
   };
   onOpenLoginModal: () => void;
   waitingChatCount?: number;
@@ -693,23 +683,23 @@ export function AppSidebar({
           })}
         </div>
 
-        {/* Rodapé da Sidebar - Usuário & Perfil RBAC */}
+        {/* Rodapé da Sidebar - Menu da Empresa & Perfil */}
         <div className="border-t border-sidebar-border p-3 shrink-0 bg-sidebar/80">
           <div
             onClick={onOpenLoginModal}
             className={`flex items-center gap-2.5 rounded-lg p-1.5 transition-colors cursor-pointer hover:bg-sidebar-accent/60 ${
               isCollapsed ? "justify-center" : ""
             }`}
-            title="Alternar Perfil ou Fazer Login (RBAC)"
+            title="Menu da Empresa e Perfil"
           >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary border border-primary/30 font-bold text-xs">
-              {currentUser.name.charAt(0)}
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/20 text-primary border border-primary/30 font-bold text-xs">
+              {(currentUser.companyName || currentUser.name).charAt(0)}
             </div>
 
             {!isCollapsed && (
               <div className="flex flex-col truncate flex-1 text-left">
                 <span className="truncate text-xs font-semibold text-foreground">
-                  {currentUser.name}
+                  {currentUser.companyName || currentUser.name}
                 </span>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="text-[9px] bg-primary/15 text-primary border border-primary/20 px-1.5 py-0.2 rounded font-mono font-bold uppercase">

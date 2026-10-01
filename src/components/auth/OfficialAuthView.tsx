@@ -1,28 +1,16 @@
 import React, { useState, useEffect } from "react";
-import { Lock, Mail, KeyRound, ArrowLeft, Scissors, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { Lock, Mail, KeyRound, ArrowLeft, Scissors, CheckCircle2, AlertCircle, Loader2, Building2, User, Phone, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import type { RoleSlug, AuthenticatedUser } from "@/lib/auth/auth.types";
-import { hashPasswordClient, verifyPasswordClient } from "@/lib/auth/client-password";
+import { verifyPasswordClient } from "@/lib/auth/client-password";
 
 export type { AuthenticatedUser };
 
-interface OfficialAuthViewProps {
-  onLoginSuccess: (user: AuthenticatedUser) => void;
-  onNavigateNavorPortals?: () => void;
-}
-
-type AuthMode = "LOGIN" | "FORGOT_PASSWORD" | "FIRST_ACCESS";
-
-/**
- * A retaguarda registra cada produto em uma identidade de autenticação própria.
- * O endereço técnico nunca é exibido ao cliente: ele continua informando seu
- * e-mail normal, mas a senha fica isolada do acesso aos demais produtos NAVOR.
- */
-async function barberHubAuthEmail(email: string) {
+export async function computeBarberHubAuthEmail(email: string): Promise<string> {
   const normalized = email.trim().toLowerCase();
   const bytes = new TextEncoder().encode(`barberhub:${normalized}`);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -30,27 +18,69 @@ async function barberHubAuthEmail(email: string) {
   return `barberhub.${hash.slice(0, 40)}@login.navor.internal`;
 }
 
+interface OfficialAuthViewProps {
+  onLoginSuccess: (user: AuthenticatedUser) => void;
+  onNavigateNavorPortals?: () => void;
+}
+
+type AuthMode = "LOGIN" | "FORGOT_PASSWORD" | "FIRST_ACCESS" | "SET_NEW_PASSWORD";
+type PortalType = "SUBSCRIBER" | "CUSTOMER";
+
 export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: OfficialAuthViewProps) {
+  const [portalType, setPortalType] = useState<PortalType>("SUBSCRIBER");
   const [mode, setMode] = useState<AuthMode>("LOGIN");
 
-  // Campos de Login
+  // Campos de Login da Barbearia (Assinante / Gestor / Equipe)
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  // Campos de Login do Cliente Final
+  const [customerIdentifier, setCustomerIdentifier] = useState("");
+  const [customerPin, setCustomerPin] = useState("");
 
   // Campos de Recuperação
   const [recoveryEmail, setRecoveryEmail] = useState("");
   const [recoverySent, setRecoverySent] = useState(false);
 
-  // Campos de Primeiro Acesso
+  // Campos de Troca Obrigatória de Senha (Primeiro Acesso com Senha Provisória)
+  const [provisionalPassword, setProvisionalPassword] = useState("");
   const [inviteToken, setInviteToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [firstAccessSuccess, setFirstAccessSuccess] = useState(false);
+  const [pendingAuthUser, setPendingAuthUser] = useState<AuthenticatedUser | null>(null);
 
   // Estados de Operação
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Ponto 6: O Portal do Cliente só existe se o módulo correspondente estiver habilitado no plano/assinatura
+  const [isCustomerPortalEnabled, setIsCustomerPortalEnabled] = useState(false);
+
+  // Detecta se o módulo de Portal do Cliente está habilitado para o estabelecimento
+  useEffect(() => {
+    let isMounted = true;
+    const checkCustomerModule = async () => {
+      try {
+        const { data } = await supabase
+          .from("account_modules")
+          .select("id, system_modules!inner(key)")
+          .eq("system_modules.key", "customer_portal")
+          .limit(1);
+
+        if (isMounted && data && data.length > 0) {
+          setIsCustomerPortalEnabled(true);
+        }
+      } catch {
+        // Módulo não contratado ou desabilitado
+      }
+    };
+    checkCustomerModule();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Detecta parâmetros de URL para Primeiro Acesso ou Recuperação de Senha
   useEffect(() => {
@@ -68,7 +98,7 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
     }
   }, []);
 
-  // 1. FLUXO DE LOGIN OFICIAL
+  // 1. FLUXO DE LOGIN DO ASSINANTE / GESTÃO DA BARBEARIA
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -83,42 +113,116 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
     setIsLoading(true);
 
     try {
-      // 1. Tenta autenticação oficial via Supabase Auth
-      const productAuthEmail = await barberHubAuthEmail(cleanEmail);
-      let { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: productAuthEmail,
+      // 1.1 Resolve a identidade técnica exclusiva do BarberHub no Supabase Central
+      let targetAuthEmail: string | null = null;
+      try {
+        const { data: resolvedEmail } = await (supabase.rpc as any)("resolve_product_auth_email", {
+          p_product_slug: "barberhub",
+          p_email: cleanEmail,
+        });
+        if (resolvedEmail) {
+          targetAuthEmail = resolvedEmail;
+        }
+      } catch (rpcErr) {
+        console.warn("[Auth] Resolução de identidade via RPC:", rpcErr);
+      }
+
+      // Se a RPC não retornou, gera o e-mail técnico padrão BarberHub
+      if (!targetAuthEmail) {
+        targetAuthEmail = await computeBarberHubAuthEmail(cleanEmail);
+      }
+
+      // 1.2 Tenta autenticação no Supabase Auth central com a identidade do BarberHub
+      let authUser: any = null;
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: targetAuthEmail,
         password,
       });
 
-      // Mantém o acesso de contas criadas antes da identidade isolada.
-      if (authError) {
-        const legacySignIn = await supabase.auth.signInWithPassword({
+      if (!authError && authData.user) {
+        authUser = authData.user;
+      } else {
+        // Fallback exclusivamente para contas legadas cadastradas antes da segregação de produtos
+        const { data: fallbackAuth, error: fallbackErr } = await supabase.auth.signInWithPassword({
           email: cleanEmail,
           password,
         });
-        authData = legacySignIn.data;
-        authError = legacySignIn.error;
+        if (!fallbackErr && fallbackAuth.user) {
+          authUser = fallbackAuth.user;
+        }
       }
 
-      if (!authError && authData.user) {
-        const tenantId = (authData.user.app_metadata?.tenant_id as string) || (authData.user.user_metadata?.tenant_id as string) || "tenant-matriz";
-        const role = ((authData.user.app_metadata?.role as string) || (authData.user.user_metadata?.role as string) || "PROPRIETARIO") as RoleSlug;
-        const name = (authData.user.user_metadata?.name as string) || cleanEmail.split("@")[0] || "Administrador";
+      if (authUser) {
+        const mustChange = Boolean(
+          authUser.user_metadata?.must_change_password ||
+          authUser.app_metadata?.must_change_password
+        );
+
+        // Busca informações relacionais no schema barberhub
+        const { data: dbUser } = await supabase
+          .from("users")
+          .select("id, name, email, tenant_id, unit_id, status")
+          .or(`id.eq.${authUser.id},email.eq.${cleanEmail}`)
+          .maybeSingle();
+
+        const tenantId = dbUser?.tenant_id || (authUser.app_metadata?.tenant_id as string) || (authUser.user_metadata?.tenant_id as string) || "";
+        const name = dbUser?.name || (authUser.user_metadata?.name as string) || cleanEmail.split("@")[0] || "Administrador";
+
+        // Busca o papel no RBAC do schema barberhub
+        const { data: userRoleData } = await supabase
+          .from("user_roles")
+          .select("role_id, roles(slug)")
+          .eq("user_id", dbUser?.id || authUser.id)
+          .maybeSingle();
+
+        const resolvedRole = ((userRoleData as any)?.roles?.slug as RoleSlug) || "PROPRIETARIO";
+
+        // Busca nome oficial da empresa contratante no schema barberhub
+        let companyName = "Minha Barbearia";
+        if (tenantId) {
+          try {
+            const { data: tenantData } = await supabase
+              .from("tenants")
+              .select("id, name, trade_name")
+              .eq("id", tenantId)
+              .maybeSingle();
+            if (tenantData) {
+              companyName = tenantData.trade_name || tenantData.name || companyName;
+            }
+          } catch (tErr) {
+            console.warn("[Auth] Erro ao buscar dados do tenant:", tErr);
+          }
+        }
 
         const loggedUser: AuthenticatedUser = {
-          id: authData.user.id,
+          id: dbUser?.id || authUser.id,
           name,
-          role,
+          role: resolvedRole,
           email: cleanEmail,
           tenantId,
+          companyName,
+          unitId: dbUser?.unit_id || undefined,
+          mustChangePassword: mustChange,
         };
+
+        // Regra Obrigatória NAVOR: no primeiro acesso com senha provisória, obriga a criação da senha definitiva
+        if (mustChange) {
+          setPendingAuthUser(loggedUser);
+          setProvisionalPassword(password);
+          setMode("SET_NEW_PASSWORD");
+          setNewPassword("");
+          setConfirmPassword("");
+          setSuccessMessage("Autenticado com senha provisória da retaguarda. Por segurança, crie sua senha definitiva agora.");
+          setIsLoading(false);
+          return;
+        }
 
         localStorage.setItem("barberhub_session_user", JSON.stringify(loggedUser));
         onLoginSuccess(loggedUser);
         return;
       }
 
-      // 2. Consulta tabela 'users' com criptografia segura se auth direto não estiver populado
+      // 1.3 Fallback: consulta tabela 'users' no schema barberhub
       const { data: dbUser, error: dbError } = await supabase
         .from("users")
         .select("id, name, email, password_hash, tenant_id, unit_id, status, failed_attempts, locked_until")
@@ -126,21 +230,19 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
         .maybeSingle();
 
       if (dbError) {
-        console.error("Erro na busca de usuário:", dbError);
+        console.error("Erro na busca de usuário no schema barberhub:", dbError);
       }
 
       if (dbUser) {
         if (dbUser.status !== "ACTIVE") {
-          setErrorMessage("Esta conta de acesso está inativa. Contate o proprietário da barbearia.");
+          setErrorMessage("Esta conta de acesso está inativa. Contate o suporte da NAVOR ou o proprietário da barbearia.");
           setIsLoading(false);
           return;
         }
 
-        // Validação de senha
         const passwordMatches = await verifyPasswordClient(password, dbUser.password_hash);
 
         if (passwordMatches) {
-          // Busca o papel do usuário
           const { data: userRoleData } = await supabase
             .from("user_roles")
             .select("role_id, roles(slug)")
@@ -149,12 +251,27 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
 
           const resolvedRole = ((userRoleData as any)?.roles?.slug as RoleSlug) || "PROPRIETARIO";
 
+          let companyName = "Minha Barbearia";
+          if (dbUser.tenant_id) {
+            try {
+              const { data: tenantData } = await supabase
+                .from("tenants")
+                .select("id, name, trade_name")
+                .eq("id", dbUser.tenant_id)
+                .maybeSingle();
+              if (tenantData) {
+                companyName = tenantData.trade_name || tenantData.name || companyName;
+              }
+            } catch {}
+          }
+
           const loggedUser: AuthenticatedUser = {
             id: dbUser.id,
             name: dbUser.name,
             role: resolvedRole,
             email: dbUser.email,
             tenantId: dbUser.tenant_id,
+            companyName,
             unitId: dbUser.unit_id,
           };
 
@@ -164,11 +281,141 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
         }
       }
 
-      // Se falhou em ambas as tentativas
       setErrorMessage("E-mail ou senha incorretos. Verifique suas credenciais.");
     } catch (err: any) {
       console.error("Erro no login:", err);
       setErrorMessage(err.message || "Falha ao autenticar. Tente novamente em instantes.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 1.2 FLUXO DE LOGIN DO CLIENTE FINAL (PORTAL DO CLIENTE)
+  const handleCustomerLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    const cleanInput = customerIdentifier.trim();
+    if (!cleanInput) {
+      setErrorMessage("Por favor, informe seu celular, CPF ou e-mail cadastrado.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // Busca cliente na tabela barberhub.customers
+      const { data: client, error: clientErr } = await supabase
+        .from("customers")
+        .select("id, name, phone, email, cpf, tenant_id")
+        .or(`phone.eq.${cleanInput},email.eq.${cleanInput.toLowerCase()},cpf.eq.${cleanInput}`)
+        .maybeSingle();
+
+      if (clientErr || !client) {
+        throw new Error("Cliente não encontrado. Solicite o cadastro no balcão da barbearia para ativar seu acesso.");
+      }
+
+      // Busca dados do estabelecimento
+      let companyName = "Barbearia";
+      if (client.tenant_id) {
+        try {
+          const { data: tenantData } = await supabase
+            .from("tenants")
+            .select("name, trade_name")
+            .eq("id", client.tenant_id)
+            .maybeSingle();
+          if (tenantData) {
+            companyName = tenantData.trade_name || tenantData.name || companyName;
+          }
+        } catch {}
+      }
+
+      const customerUser: AuthenticatedUser = {
+        id: client.id,
+        name: client.name,
+        role: "CLIENTE",
+        email: client.email || `${client.phone}@cliente.barberhub`,
+        tenantId: client.tenant_id,
+        companyName,
+        unitId: null,
+        mustChangePassword: false,
+      };
+
+      localStorage.setItem("barberhub_session_user", JSON.stringify(customerUser));
+      onLoginSuccess(customerUser);
+    } catch (err: any) {
+      setErrorMessage(err.message || "Falha no acesso do cliente.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 1.4 FLUXO DE DEFINIÇÃO DE SENHA DEFINITIVA (OBRIGATÓRIO NO PRIMEIRO ACESSO)
+  const handleSetNewPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    if (newPassword.length < 8) {
+      setErrorMessage("A nova senha deve possuir no mínimo 8 caracteres.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setErrorMessage("As senhas informadas não coincidem.");
+      return;
+    }
+
+    if (provisionalPassword && newPassword === provisionalPassword) {
+      setErrorMessage("A nova senha definitiva deve ser diferente da senha provisória.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // 1. Atualiza a senha no Supabase Auth central e remove o indicador de troca pendente
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+        data: {
+          must_change_password: false,
+        },
+      });
+
+      if (updateError) {
+        throw new Error(updateError.message || "Erro ao salvar nova senha definitiva.");
+      }
+
+      // 2. Executa função segura no servidor (SECURITY DEFINER) para sincronizar credenciais BarberHub
+      try {
+        const { data: rpcData, error: rpcErr } = await (supabase.rpc as any)("barberhub_change_password", {
+          p_new_password: newPassword,
+        });
+
+        if (rpcErr || (rpcData && rpcData.success === false)) {
+          console.warn("[Auth] Retorno da função segura barberhub_change_password:", rpcErr || rpcData);
+        }
+      } catch (rpcEx) {
+        console.warn("[Auth] Erro ao invocar RPC de sincronização:", rpcEx);
+      }
+
+      if (pendingAuthUser) {
+        const updatedUser: AuthenticatedUser = {
+          ...pendingAuthUser,
+          mustChangePassword: false,
+        };
+        localStorage.setItem("barberhub_session_user", JSON.stringify(updatedUser));
+        setSuccessMessage("Senha definitiva cadastrada com sucesso! Entrando no BarberHub...");
+        setTimeout(() => {
+          onLoginSuccess(updatedUser);
+        }, 1200);
+      } else {
+        setMode("LOGIN");
+        setSuccessMessage("Senha definitiva cadastrada com sucesso! Faça login com sua nova senha.");
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || "Falha ao definir nova senha.");
     } finally {
       setIsLoading(false);
     }
@@ -190,16 +437,15 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-        redirectTo: "https://barberhub.navorbr.com/auth/callback?type=recovery",
+        redirectTo: `${window.location.origin}/auth/callback?type=recovery`,
       });
 
       if (error) {
         console.warn("Aviso ao enviar link de recuperação:", error);
       }
 
-      // Mesmo que o e-mail não exista, exibe sucesso genérico por segurança (prevenção de enumeração)
       setRecoverySent(true);
-      setSuccessMessage("Se o e-mail estiver cadastrado em nosso sistema, as instruções foram enviadas para sua caixa de entrada.");
+      setSuccessMessage("Se o e-mail estiver cadastrado, as instruções foram enviadas para sua caixa de entrada.");
     } catch (err: any) {
       setErrorMessage(err.message || "Erro ao processar solicitação.");
     } finally {
@@ -233,7 +479,6 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
     try {
       const passwordHash = await hashPasswordClient(newPassword);
 
-      // Executa RPC accept_user_invite
       const { data, error } = await (supabase.rpc as any)("accept_user_invite", {
         p_token: inviteToken.trim(),
         p_password_hash: passwordHash,
@@ -254,7 +499,7 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
       setTimeout(() => {
         setMode("LOGIN");
         setEmail(data?.email || "");
-      }, 2500);
+      }, 2000);
     } catch (err: any) {
       setErrorMessage(err.message || "Falha ao registrar nova senha.");
     } finally {
@@ -283,29 +528,67 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
               className="h-10 w-10 object-contain drop-shadow-[0_2px_10px_rgba(0,136,204,0.35)]"
             />
             <div className="h-6 w-px bg-zinc-700/60 mx-0.5" />
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-zinc-900 to-zinc-950 border border-amber-500/30 shadow-lg shadow-amber-500/10 flex items-center justify-center">
-              <Scissors className="h-5 w-5 text-amber-500" />
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-zinc-900 to-zinc-950 border border-primary/30 shadow-lg shadow-primary/10 flex items-center justify-center">
+              <Scissors className="h-5 w-5 text-primary" />
             </div>
           </div>
 
           <span className="text-[11px] font-bold tracking-widest text-[#0088cc] uppercase flex items-center gap-1.5">
             <span>NAVOR</span>
             <span className="text-zinc-600">•</span>
-            <span>PORTAL BARBERHUB</span>
+            <span>BARBERHUB PRO</span>
           </span>
 
-          <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl font-display">
-            Acesse sua Barbearia
+          <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl font-display">
+            {portalType === "SUBSCRIBER" ? "Acesso à Barbearia" : "Portal do Cliente"}
           </h1>
 
-          <p className="mt-2 text-xs sm:text-sm text-muted-foreground max-w-sm">
-            Entre para gerenciar sua agenda, equipe, atendimentos, caixa e clientes com excelência e precisão.
+          <p className="mt-1.5 text-xs text-muted-foreground max-w-sm">
+            {portalType === "SUBSCRIBER"
+              ? "Gerenciamento completo: agenda, equipe, atendimentos, caixa e faturamento."
+              : "Consulte seus agendamentos, histórico de cortes e saldo do programa de fidelidade."}
           </p>
         </div>
 
         {/* Card Principal */}
         <Card className="w-full rounded-2xl border border-hairline bg-card shadow-2xl p-6 sm:p-8 backdrop-blur-md">
-          <CardContent className="p-0 space-y-5">
+          <CardContent className="p-0 space-y-4">
+            {/* Seletor de Perfil de Login (Exibido estritamente quando o módulo Portal do Cliente estiver habilitado) */}
+            {mode === "LOGIN" && isCustomerPortalEnabled && (
+              <div className="grid grid-cols-2 p-1 rounded-xl bg-muted/40 border border-hairline text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPortalType("SUBSCRIBER");
+                    setErrorMessage(null);
+                  }}
+                  className={`flex items-center justify-center gap-2 py-2 rounded-lg transition-all cursor-pointer ${
+                    portalType === "SUBSCRIBER"
+                      ? "bg-card text-foreground shadow-xs font-bold border border-hairline"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Building2 className="h-3.5 w-3.5 text-primary" />
+                  <span>Gestão Barbearia</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPortalType("CUSTOMER");
+                    setErrorMessage(null);
+                  }}
+                  className={`flex items-center justify-center gap-2 py-2 rounded-lg transition-all cursor-pointer ${
+                    portalType === "CUSTOMER"
+                      ? "bg-card text-foreground shadow-xs font-bold border border-hairline"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <User className="h-3.5 w-3.5 text-[#0088cc]" />
+                  <span>Portal do Cliente</span>
+                </button>
+              </div>
+            )}
+
             {/* Mensagens de Feedback */}
             {errorMessage && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs">
@@ -322,20 +605,13 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
             )}
 
             {/* ========================================================= */}
-            {/* MODO 1: LOGIN OFICIAL                                    */}
+            {/* MODO 1A: LOGIN GESTÃO DA BARBEARIA (ASSINANTE / EQUIPE)   */}
             {/* ========================================================= */}
-            {mode === "LOGIN" && (
+            {mode === "LOGIN" && portalType === "SUBSCRIBER" && (
               <form onSubmit={handleLoginSubmit} className="space-y-4">
-                <div>
-                  <h2 className="text-lg font-bold text-foreground">Entrar</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Acesso restrito a profissionais e equipe cadastrados.
-                  </p>
-                </div>
-
                 <div className="space-y-1.5 text-left">
                   <Label htmlFor="login-email" className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                    E-MAIL
+                    E-MAIL CADASTRADO
                   </Label>
                   <Input
                     id="login-email"
@@ -378,15 +654,11 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
                       <span>Autenticando...</span>
                     </div>
                   ) : (
-                    "Entrar"
+                    "Acessar Painel da Barbearia"
                   )}
                 </Button>
 
                 <div className="pt-2 text-center space-y-2 border-t border-hairline">
-                  <p className="text-[11px] text-muted-foreground">
-                    Novos colaboradores são cadastrados em Usuários.
-                  </p>
-
                   <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1 text-xs">
                     <button
                       type="button"
@@ -412,6 +684,52 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
                       Primeiro acesso?
                     </button>
                   </div>
+                </div>
+              </form>
+            )}
+
+            {/* ========================================================= */}
+            {/* MODO 1B: LOGIN DO CLIENTE FINAL (PORTAL DO CLIENTE)       */}
+            {/* ========================================================= */}
+            {mode === "LOGIN" && portalType === "CUSTOMER" && (
+              <form onSubmit={handleCustomerLoginSubmit} className="space-y-4">
+                <div className="space-y-1.5 text-left">
+                  <Label htmlFor="customer-ident" className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    CELULAR, CPF OU E-MAIL DO CLIENTE
+                  </Label>
+                  <Input
+                    id="customer-ident"
+                    type="text"
+                    value={customerIdentifier}
+                    onChange={(e) => setCustomerIdentifier(e.target.value)}
+                    placeholder="(11) 99999-9999 ou seu@email.com"
+                    required
+                    className="h-10 text-sm bg-muted/20 border-hairline focus:border-primary"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Use o mesmo contato informado durante seu atendimento na barbearia.
+                  </p>
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full h-11 text-sm font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-md transition-all cursor-pointer mt-2"
+                >
+                  {isLoading ? (
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Localizando cadastro...</span>
+                    </div>
+                  ) : (
+                    "Entrar no Portal do Cliente"
+                  )}
+                </Button>
+
+                <div className="pt-2 text-center border-t border-hairline">
+                  <p className="text-[11px] text-muted-foreground">
+                    O acesso do cliente é restrito a seus agendamentos e fidelidade, sem permissões administrativas.
+                  </p>
                 </div>
               </form>
             )}
@@ -525,6 +843,7 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
                         onChange={(e) => setNewPassword(e.target.value)}
                         placeholder="••••••••••••"
                         required
+                        minLength={8}
                         className="h-10 text-sm bg-muted/20 border-hairline focus:border-primary"
                       />
                     </div>
@@ -540,6 +859,7 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
                         onChange={(e) => setConfirmPassword(e.target.value)}
                         placeholder="••••••••••••"
                         required
+                        minLength={8}
                         className="h-10 text-sm bg-muted/20 border-hairline focus:border-primary"
                       />
                     </div>
@@ -577,6 +897,74 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
                 </div>
               </form>
             )}
+
+            {/* ========================================================= */}
+            {/* MODO 4: DEFINIÇÃO DE SENHA DEFINITIVA (PRIMEIRO ACESSO)  */}
+            {/* ========================================================= */}
+            {mode === "SET_NEW_PASSWORD" && (
+              <form onSubmit={handleSetNewPasswordSubmit} className="space-y-4">
+                <div>
+                  <h2 className="text-lg font-bold text-foreground">Definir Senha Definitiva</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Você entrou com uma senha provisória da NAVOR. É obrigatório cadastrar sua senha definitiva antes de prosseguir.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-muted/20 border border-hairline text-[11px] text-muted-foreground flex items-start gap-2 text-left">
+                  <ShieldCheck className="h-4 w-4 text-[#0088cc] shrink-0 mt-0.5" />
+                  <span>
+                    Esta credencial é isolada e exclusiva para o <strong>BarberHub</strong>, sem alterar suas senhas em outros produtos NAVOR.
+                  </span>
+                </div>
+
+                <div className="space-y-1.5 text-left">
+                  <Label htmlFor="set-new-pass" className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    NOVA SENHA DEFINITIVA (MÍNIMO 8 CARACTERES)
+                  </Label>
+                  <Input
+                    id="set-new-pass"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    required
+                    minLength={8}
+                    className="h-10 text-sm bg-muted/20 border-hairline focus:border-primary"
+                  />
+                </div>
+
+                <div className="space-y-1.5 text-left">
+                  <Label htmlFor="set-confirm-pass" className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    CONFIRME A NOVA SENHA DEFINITIVA
+                  </Label>
+                  <Input
+                    id="set-confirm-pass"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    required
+                    minLength={8}
+                    className="h-10 text-sm bg-muted/20 border-hairline focus:border-primary"
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full h-11 text-sm font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-md transition-all cursor-pointer"
+                >
+                  {isLoading ? (
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Salvando senha...</span>
+                    </div>
+                  ) : (
+                    "Salvar Senha Definitiva e Acessar"
+                  )}
+                </Button>
+              </form>
+            )}
           </CardContent>
         </Card>
 
@@ -593,10 +981,10 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
             className="inline-flex items-center gap-1.5 text-xs text-[#0088cc] hover:underline font-semibold transition-colors cursor-pointer"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            Escolher outra área de acesso
+            Escolher outro produto NAVOR
           </a>
           <p className="text-[11px] text-muted-foreground font-sans">
-            NAVOR - Tecnologia que move negócios
+            NAVOR • Tecnologia que move negócios
           </p>
         </div>
       </div>

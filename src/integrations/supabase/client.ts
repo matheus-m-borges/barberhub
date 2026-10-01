@@ -35,12 +35,12 @@ function createSupabaseClient() {
     envMeta?.['VITE_SUPABASE_URL'] ||
     process.env?.['VITE_SUPABASE_URL'] ||
     process.env?.['SUPABASE_URL'] ||
-    'https://timkarmfbdbfxfozqfrx.supabase.co';
+    'https://rigpttbgqvofrzalrrbq.supabase.co';
   const SUPABASE_PUBLISHABLE_KEY =
     envMeta?.['VITE_SUPABASE_PUBLISHABLE_KEY'] ||
     process.env?.['VITE_SUPABASE_PUBLISHABLE_KEY'] ||
     process.env?.['SUPABASE_PUBLISHABLE_KEY'] ||
-    'sb_publishable_yj_tglaOlyij0ZRPhB4NQg_3qupS2kV';
+    'sb_publishable_2HG02CYE25xsSFEyYJ6Orw_6G2t4Zzl';
 
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
     const missing = [
@@ -52,7 +52,7 @@ function createSupabaseClient() {
     throw new Error(message);
   }
 
-  return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  return createClient<Database, 'barberhub'>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     db: {
       schema: 'barberhub',
     },

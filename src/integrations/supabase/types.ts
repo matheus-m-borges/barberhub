@@ -12,7 +12,7 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.18"
   }
-  barberhub: {
+  public: {
     Tables: {
       audit_logs: {
         Row: {
@@ -411,11 +411,38 @@ export type Database = {
       [_ in never]: never
     }
   }
+  barberhub: {
+    Tables: Database["public"]["Tables"]
+    Views: Database["public"]["Views"]
+    Functions: {
+      resolve_product_auth_email: {
+        Args: { p_product_slug?: string; p_email?: string }
+        Returns: string | null
+      }
+      accept_user_invite: {
+        Args: { p_token: string; p_password_hash: string }
+        Returns: Json
+      }
+      create_user_invite: {
+        Args: {
+          p_tenant_id: string
+          p_email: string
+          p_name: string
+          p_role: string
+          p_token: string
+          p_hours_valid?: number
+        }
+        Returns: Json
+      }
+    }
+    Enums: Database["public"]["Enums"]
+    CompositeTypes: Database["public"]["CompositeTypes"]
+  }
 }
 
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "barberhub">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends

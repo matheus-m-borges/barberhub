@@ -115,7 +115,7 @@ export function SettingsView({
   const [newFaqKeywords, setNewFaqKeywords] = useState("");
 
   // 0.1 WhatsApp Cloud API Oficial (Cofre Seguro de Credenciais)
-  const defaultTenantId = "tenant-matriz";
+  const defaultTenantId = "barberhub-active-tenant";
   const [initialConfig] = useState(() => whatsAppVault.getConfig(defaultTenantId, defaultTenantId));
   const [wabaId, setWabaId] = useState(initialConfig?.wabaId || "");
   const [phoneNumberId, setPhoneNumberId] = useState(initialConfig?.phoneNumberId || "");
@@ -1226,13 +1226,14 @@ export function SettingsView({
               <div className="flex items-center gap-2">
                 <Input
                   readOnly
-                  value="https://barberhub.app/agendamento/matriz-centro"
+                  value={`${typeof window !== "undefined" ? window.location.origin : "https://barberhub.navorbr.com"}/agendamento/${(businessSettings.name || "barbearia").toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
                   className="bg-background border-hairline text-xs font-mono font-bold"
                 />
                 <Button
                   size="sm"
                   onClick={() => {
-                    navigator.clipboard.writeText("https://barberhub.app/agendamento/matriz-centro");
+                    const url = `${typeof window !== "undefined" ? window.location.origin : "https://barberhub.navorbr.com"}/agendamento/${(businessSettings.name || "barbearia").toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
+                    navigator.clipboard.writeText(url);
                     onShowToast("Link copiado para a área de transferência!");
                   }}
                   className="bg-primary text-primary-foreground font-bold text-xs h-9 px-4 cursor-pointer"
