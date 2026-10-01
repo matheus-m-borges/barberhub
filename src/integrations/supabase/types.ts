@@ -12,7 +12,7 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.18"
   }
-  public: {
+  barberhub: {
     Tables: {
       audit_logs: {
         Row: {
