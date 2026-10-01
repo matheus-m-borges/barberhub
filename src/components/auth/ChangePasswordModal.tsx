@@ -85,29 +85,17 @@ export function ChangePasswordModal({
         }
       }
 
-      // 2. Atualiza a senha no Supabase Auth central com metadata isolado do BarberHub
-      const { error: updateAuthErr } = await supabase.auth.updateUser({
-        password: newPassword,
-        data: {
-          must_change_password: false,
-        },
+      // 2. Executa a alteração atômica e obrigatória no servidor via RPC barberhub_change_password
+      const { data: rpcData, error: rpcErr } = await (supabase.rpc as any)("barberhub_change_password", {
+        p_new_password: newPassword,
       });
 
-      if (updateAuthErr) {
-        throw new Error(updateAuthErr.message || "Erro ao atualizar a senha no serviço de autenticação.");
+      if (rpcErr) {
+        throw new Error(rpcErr.message || "Erro ao atualizar a senha no serviço central.");
       }
 
-      // 3. Executa função segura no servidor (SECURITY DEFINER) para atualizar credenciais exclusivas do BarberHub
-      try {
-        const { data: rpcData, error: rpcErr } = await (supabase.rpc as any)("barberhub_change_password", {
-          p_new_password: newPassword,
-        });
-
-        if (rpcErr || (rpcData && rpcData.success === false)) {
-          console.warn("[ChangePassword] Retorno da função segura barberhub_change_password:", rpcErr || rpcData);
-        }
-      } catch (rpcEx) {
-        console.warn("[ChangePassword] Erro ao invocar RPC de sincronização:", rpcEx);
+      if (!rpcData || rpcData.success === false) {
+        throw new Error(rpcData?.error || "Falha ao sincronizar a nova senha do BarberHub no servidor.");
       }
 
       // 4. Atualiza o estado da sessão local removendo must_change_password

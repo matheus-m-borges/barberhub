@@ -63,13 +63,8 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
     let isMounted = true;
     const checkCustomerModule = async () => {
       try {
-        const { data } = await supabase
-          .from("account_modules")
-          .select("id, system_modules!inner(key)")
-          .eq("system_modules.key", "customer_portal")
-          .limit(1);
-
-        if (isMounted && data && data.length > 0) {
+        const { data, error } = await (supabase.rpc as any)("barberhub_is_customer_portal_enabled");
+        if (isMounted && !error && data === true) {
           setIsCustomerPortalEnabled(true);
         }
       } catch {
@@ -375,29 +370,17 @@ export function OfficialAuthView({ onLoginSuccess, onNavigateNavorPortals }: Off
     setIsLoading(true);
 
     try {
-      // 1. Atualiza a senha no Supabase Auth central e remove o indicador de troca pendente
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: newPassword,
-        data: {
-          must_change_password: false,
-        },
+      // 1. Executa a alteração de forma atômica e obrigatória no servidor via RPC barberhub_change_password
+      const { data: rpcData, error: rpcErr } = await (supabase.rpc as any)("barberhub_change_password", {
+        p_new_password: newPassword,
       });
 
-      if (updateError) {
-        throw new Error(updateError.message || "Erro ao salvar nova senha definitiva.");
+      if (rpcErr) {
+        throw new Error(rpcErr.message || "Falha ao definir nova senha definitiva.");
       }
 
-      // 2. Executa função segura no servidor (SECURITY DEFINER) para sincronizar credenciais BarberHub
-      try {
-        const { data: rpcData, error: rpcErr } = await (supabase.rpc as any)("barberhub_change_password", {
-          p_new_password: newPassword,
-        });
-
-        if (rpcErr || (rpcData && rpcData.success === false)) {
-          console.warn("[Auth] Retorno da função segura barberhub_change_password:", rpcErr || rpcData);
-        }
-      } catch (rpcEx) {
-        console.warn("[Auth] Erro ao invocar RPC de sincronização:", rpcEx);
+      if (!rpcData || rpcData.success === false) {
+        throw new Error(rpcData?.error || "Falha ao sincronizar nova senha segura no servidor.");
       }
 
       if (pendingAuthUser) {
